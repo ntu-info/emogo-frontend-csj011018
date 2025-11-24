@@ -10,10 +10,6 @@
       "package": "com.spiketren.exporoutermwe"
     },
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "7918e76f-59e9-45c4-aae4-c99cec64cfac"
-      }
     },
     "owner": "spiketren",
     "ios": {
