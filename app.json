@@ -7,13 +7,17 @@
     "name": "expo-router-mwe",
     "slug": "expo-router-mwe",
     "android": {
-      "package": "com.spiketren.exporoutermwe"
+      "package": "com.b10207074.exporoutermwe"
     },
     "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "11d32715-f4a2-40ae-85d7-833ddebd141c"
+      }
     },
-    "owner": "spiketren",
+    "owner": "b10207074",
     "ios": {
-      "bundleIdentifier": "com.spiketren.exporoutermwe",
+      "bundleIdentifier": "com.b10207074.exporoutermwe",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
