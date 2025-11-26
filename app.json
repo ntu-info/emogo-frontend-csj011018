@@ -1,15 +1,37 @@
 {
   "expo": {
     "scheme": "acme",
-    "plugins": [
-      "expo-router",
-      "expo-sqlite"
-    ],
     "name": "expo-router-mwe",
     "slug": "expo-router-mwe",
+
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      "expo-image-picker",
+      "expo-location",
+      "expo-notifications"
+    ],
+
     "android": {
-      "package": "com.b10207074.exporoutermwe"
+      "package": "com.b10207074.exporoutermwe",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
     },
+
+    "ios": {
+      "bundleIdentifier": "com.b10207074.exporoutermwe",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "App 需要使用相機來錄製 1 秒 vlog。",
+        "NSMicrophoneUsageDescription": "App 需要使用麥克風來錄製 vlog 的聲音。",
+        "NSLocationWhenInUseUsageDescription": "App 需要取得你的 GPS 位置來記錄心情的發生地點。"
+      }
+    },
+
     "extra": {
       "router": {},
       "eas": {
@@ -17,11 +39,12 @@
       }
     },
     "owner": "b10207074",
-    "ios": {
-      "bundleIdentifier": "com.b10207074.exporoutermwe",
-      "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
-      }
+
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/11d32715-f4a2-40ae-85d7-833ddebd141c"
     }
   }
 }
