@@ -2,7 +2,8 @@
   "expo": {
     "scheme": "acme",
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "expo-sqlite"
     ],
     "name": "expo-router-mwe",
     "slug": "expo-router-mwe",
