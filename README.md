@@ -28,5 +28,5 @@ This is a very small Expo project using **expo-router** with:
 3. Open the app on a device or emulator using the Expo dev tools.
 
    ```bash
-   https://expo.dev/accounts/b10207074/projects/expo-router-mwe/builds/3ab36011-739d-4055-910f-65d94d68caf1
+   https://expo.dev/accounts/b10207074/projects/expo-router-mwe/builds/aa44b9c5-52a5-4e94-a2dd-fc7056d722e4
    ```
