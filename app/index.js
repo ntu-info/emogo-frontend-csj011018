@@ -9,12 +9,16 @@ import {
   Alert,
   Platform,
   ScrollView,
+  Share,
 } from "react-native";
 
 import * as Notifications from "expo-notifications";
 import * as SQLite from "expo-sqlite";
 import * as Location from "expo-location";
 import * as ImagePicker from "expo-image-picker";
+// import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
+
 
 const isWeb = Platform.OS === "web";
 
@@ -135,7 +139,6 @@ export default function EmogoScreen() {
       return;
     }
 
-    // 相機權限
     const camPerm = await ImagePicker.requestCameraPermissionsAsync();
     if (camPerm.status !== "granted") {
       Alert.alert("需要相機權限", "若要錄製 vlog，請允許相機權限。");
@@ -166,7 +169,7 @@ export default function EmogoScreen() {
     }
   };
 
-  // 儲存紀錄
+  // 儲存紀錄到 SQLite
   const saveLog = async () => {
     if (!location) {
       Alert.alert("請先取得 GPS");
@@ -210,13 +213,117 @@ export default function EmogoScreen() {
     }
   };
 
+  // 一鍵匯出：把所有紀錄打包成 JSON 檔案並分享
+  const exportLogsAsJson = async () => {
+    try {
+      let allLogs = [];
+
+      // 1. 從 SQLite 或記憶體取出所有紀錄
+      if (!isWeb && db) {
+        allLogs = await db.getAllAsync(
+          "SELECT * FROM logs ORDER BY id ASC;"
+        );
+      } else {
+        allLogs = logs.slice().reverse(); // web 示意
+      }
+
+      if (!allLogs || allLogs.length === 0) {
+        Alert.alert("目前沒有任何紀錄可匯出。");
+        return;
+      }
+
+      // 2. 建立 JSON payload
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        device: Platform.OS,
+        count: allLogs.length,
+        records: allLogs.map((row) => ({
+          timestamp: row.timestamp,
+          mood: row.mood,
+          videoUri: row.videoUri || "",
+          lat: row.lat,
+          lng: row.lng,
+        })),
+      };
+
+      const jsonString = JSON.stringify(payload, null, 2);
+
+      // 3. Web 或無法寫檔：印到 console
+      if (isWeb || !FileSystem.documentDirectory) {
+        console.log(jsonString);
+        Alert.alert(
+          "Web / 不支援檔案模式",
+          "已在 console 印出 JSON 內容，請從開發者工具複製。"
+        );
+        return;
+      }
+
+      // 4. 原生：寫成 .json 檔並分享
+      const fileUri =
+        FileSystem.documentDirectory +
+        `emogo_logs_${Date.now()}.json`;
+
+      await FileSystem.writeAsStringAsync(fileUri, jsonString, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      await Share.share({
+        url: fileUri,
+        message: `Emogo JSON 匯出，共 ${allLogs.length} 筆紀錄`,
+        title: "Emogo 日誌 JSON 匯出",
+      });
+    } catch (e) {
+      console.log("export json error:", e);
+      Alert.alert(
+        "匯出失敗",
+        `產生 JSON 發生錯誤：${e?.message ?? JSON.stringify(e)}`
+      );
+    }
+  };
+
+  // 分享單一影片（備用：如果老師只想看某支）
+  const shareVideo = async (uri) => {
+    try {
+      if (!uri) {
+        Alert.alert("此紀錄沒有影片");
+        return;
+      }
+
+      await Share.share({
+        url: uri,
+        message: "Emogo 影片紀錄",
+        title: "Emogo VLOG",
+      });
+    } catch (e) {
+      Alert.alert("影片分享失敗", e?.message ?? "未知錯誤");
+    }
+  };
+
+  // 清除所有紀錄
+  const clearLogs = async () => {
+    if (!isWeb && db) {
+      try {
+        await db.runAsync("DELETE FROM logs");
+      } catch (e) {
+        console.log("clear error:", e);
+        Alert.alert("清除失敗", "請查看 console log。");
+        return;
+      }
+    }
+
+    setLogs([]);
+    setVideoUri(null);
+    setLocation(null);
+    Alert.alert("已清除", "所有紀錄已清除。");
+  };
+
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
       <Text style={styles.title}>Emogo 日常記錄</Text>
 
       {isWeb && (
         <Text style={{ color: "red", marginBottom: 8 }}>
-          （目前在 Web 預覽：SQLite / 相機 / GPS 皆以示意為主，真正功能請在手機上測試）
+          （目前在 Web 預覽：SQLite / 相機 / GPS 皆以示意為主，JSON 匯出僅支援手機 App）
         </Text>
       )}
 
@@ -270,6 +377,19 @@ export default function EmogoScreen() {
       <View style={{ height: 16 }} />
       <Button title="儲存這次紀錄到 SQLITE" onPress={saveLog} />
 
+      {/* 匯出 / 清除 按鈕 */}
+      <View style={{ marginTop: 16, flexDirection: "row" }}>
+        <View style={{ flex: 1, marginRight: 4 }}>
+          <Button
+            title="匯出所有紀錄（JSON）"
+            onPress={exportLogsAsJson}
+          />
+        </View>
+        <View style={{ flex: 1, marginLeft: 4 }}>
+          <Button color="#cc3333" title="清除所有紀錄" onPress={clearLogs} />
+        </View>
+      </View>
+
       {/* 4. 最近紀錄列表 */}
       <Text style={[styles.subtitle, { marginTop: 24 }]}>
         最近 5 筆紀錄（Web：示意；App：來自 SQLite）
@@ -289,6 +409,14 @@ export default function EmogoScreen() {
             <Text style={styles.logLine} numberOfLines={1}>
               vlog：{log.videoUri || "(無)"}
             </Text>
+            {log.videoUri ? (
+              <View style={{ marginTop: 4 }}>
+                <Button
+                  title="分享這段影片"
+                  onPress={() => shareVideo(log.videoUri)}
+                />
+              </View>
+            ) : null}
           </View>
         ))
       )}
