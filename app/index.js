@@ -1,4 +1,3 @@
-// app/index.js
 import React, { useEffect, useState } from "react";
 import {
   View,
@@ -16,11 +15,10 @@ import * as Notifications from "expo-notifications";
 import * as SQLite from "expo-sqlite";
 import * as Location from "expo-location";
 import * as ImagePicker from "expo-image-picker";
-// import * as FileSystem from "expo-file-system";
-import * as FileSystem from "expo-file-system/legacy";
-
 
 const isWeb = Platform.OS === "web";
+
+const BACKEND_BASE_URL = "https://emogo-backend-csj011018.onrender.com";
 
 // 通知處理：收到通知時顯示 alert（僅限原生）
 Notifications.setNotificationHandler({
@@ -34,7 +32,6 @@ Notifications.setNotificationHandler({
 export default function EmogoScreen() {
   const [db, setDb] = useState(null); // 只在非 web 使用 SQLite
   const [mood, setMood] = useState(3);
-  const [location, setLocation] = useState(null);
   const [hasLocationPermission, setHasLocationPermission] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState(false);
   const [videoUri, setVideoUri] = useState(null);
@@ -101,38 +98,36 @@ export default function EmogoScreen() {
     }
   };
 
-  // 取得 GPS
-  const getCurrentLocation = async () => {
-    if (isWeb) {
-      // Web：示意用台北 101 座標
-      const fakeLoc = { lat: 25.033968, lng: 121.564468 };
-      setLocation(fakeLoc);
-      Alert.alert(
-        "Web 模式",
-        `使用示意 GPS：${fakeLoc.lat.toFixed(5)}, ${fakeLoc.lng.toFixed(5)}`
-      );
-      return;
-    }
-
-    if (!hasLocationPermission) {
-      const perm = await Location.requestForegroundPermissionsAsync();
-      if (perm.status !== "granted") {
-        Alert.alert("需要位置權限", "請到設定開啟位置權限");
-        return;
+  // 🔍 在「儲存」當下默默取得 GPS（不顯示在畫面）
+  const getLocationForSave = async () => {
+    try {
+      if (isWeb) {
+        // Web 模式：給一個固定示意值，主要方便開發測試，不顯示在 UI
+        return { lat: 25.033968, lng: 121.564468 };
       }
-      setHasLocationPermission(true);
-    }
 
-    const loc = await Location.getCurrentPositionAsync({});
-    const pos = { lat: loc.coords.latitude, lng: loc.coords.longitude };
-    setLocation(pos);
-    Alert.alert(
-      "已取得 GPS",
-      `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`
-    );
+      let granted = hasLocationPermission;
+      if (!granted) {
+        const perm = await Location.requestForegroundPermissionsAsync();
+        granted = perm.status === "granted";
+        setHasLocationPermission(granted);
+      }
+
+      if (!granted) {
+        Alert.alert("需要位置權限", "請到設定開啟位置權限才能儲存紀錄。");
+        return null;
+      }
+
+      const loc = await Location.getCurrentPositionAsync({});
+      return { lat: loc.coords.latitude, lng: loc.coords.longitude };
+    } catch (e) {
+      console.log("getLocationForSave error:", e);
+      Alert.alert("取得 GPS 失敗", "請稍後再試。");
+      return null;
+    }
   };
 
-  // 錄 1 秒 vlog（使用系統相機，真的錄影）
+  // 錄 1 秒 vlog
   const recordOneSecondVlog = async () => {
     if (isWeb) {
       Alert.alert("Web 模式", "瀏覽器無法錄製 vlog，請在手機上測試。");
@@ -150,7 +145,7 @@ export default function EmogoScreen() {
       setIsRecording(true);
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-        videoMaxDuration: 1, // 1 秒 vlog
+        videoMaxDuration: 1,
         allowsEditing: false,
       });
 
@@ -169,27 +164,34 @@ export default function EmogoScreen() {
     }
   };
 
-  // 儲存紀錄到 SQLite
+  // 儲存紀錄到 SQLite + 自動上傳到後端（含影片檔）
   const saveLog = async () => {
-    if (!location) {
-      Alert.alert("請先取得 GPS");
+    // 1. 要有 vlog
+    if (!videoUri) {
+      Alert.alert("請先錄製 vlog", "儲存前請先錄製 1 秒 vlog。");
       return;
+    }
+
+    // 2. 在這裡「默默」取得 GPS
+    const loc = await getLocationForSave();
+    if (!loc) {
+      return; // 無法取得位置就不要繼續
     }
 
     const timestamp = new Date().toISOString();
     const newLog = {
-      id: Date.now(), // web demo 用隨機 id；原生會被 SQLite 的 id 覆蓋
+      id: Date.now(), // web demo 用；原生會被 SQLite 的 id 覆蓋
       timestamp,
       mood,
       videoUri: videoUri || "",
-      lat: location.lat,
-      lng: location.lng,
+      lat: loc.lat,
+      lng: loc.lng,
     };
 
-    // 先更新畫面上的 logs（web / app 都有）
+    // 更新畫面上的 logs
     setLogs((prev) => [newLog, ...prev].slice(0, 5));
 
-    // 真正寫入 SQLite（只在 app 上）
+    // 3. 寫入 SQLite（只在 App 上）
     if (!isWeb && db) {
       try {
         await db.runAsync(
@@ -197,91 +199,63 @@ export default function EmogoScreen() {
           timestamp,
           mood,
           videoUri || "",
-          location.lat,
-          location.lng
+          loc.lat,
+          loc.lng
         );
-        Alert.alert("已儲存", "這次的情緒、vlog 與 GPS 已存入 SQLite。");
       } catch (e) {
         console.log("Insert error:", e);
-        Alert.alert("儲存失敗", "請查看 console log。");
       }
-    } else if (isWeb) {
-      Alert.alert(
-        "Web 模式",
-        "已把這次紀錄加入畫面下方的清單（實際 SQLite 儲存只在手機 App 上）。"
-      );
     }
-  };
 
-  // 一鍵匯出：把所有紀錄打包成 JSON 檔案並分享
-  const exportLogsAsJson = async () => {
+    // 4. 上傳 metadata 到後端（JSON，寫進 MongoDB）
     try {
-      let allLogs = [];
-
-      // 1. 從 SQLite 或記憶體取出所有紀錄
-      if (!isWeb && db) {
-        allLogs = await db.getAllAsync(
-          "SELECT * FROM logs ORDER BY id ASC;"
-        );
-      } else {
-        allLogs = logs.slice().reverse(); // web 示意
-      }
-
-      if (!allLogs || allLogs.length === 0) {
-        Alert.alert("目前沒有任何紀錄可匯出。");
-        return;
-      }
-
-      // 2. 建立 JSON payload
-      const payload = {
-        exportedAt: new Date().toISOString(),
-        device: Platform.OS,
-        count: allLogs.length,
-        records: allLogs.map((row) => ({
-          timestamp: row.timestamp,
-          mood: row.mood,
-          videoUri: row.videoUri || "",
-          lat: row.lat,
-          lng: row.lng,
-        })),
-      };
-
-      const jsonString = JSON.stringify(payload, null, 2);
-
-      // 3. Web 或無法寫檔：印到 console
-      if (isWeb || !FileSystem.documentDirectory) {
-        console.log(jsonString);
-        Alert.alert(
-          "Web / 不支援檔案模式",
-          "已在 console 印出 JSON 內容，請從開發者工具複製。"
-        );
-        return;
-      }
-
-      // 4. 原生：寫成 .json 檔並分享
-      const fileUri =
-        FileSystem.documentDirectory +
-        `emogo_logs_${Date.now()}.json`;
-
-      await FileSystem.writeAsStringAsync(fileUri, jsonString, {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
-
-      await Share.share({
-        url: fileUri,
-        message: `Emogo JSON 匯出，共 ${allLogs.length} 筆紀錄`,
-        title: "Emogo 日誌 JSON 匯出",
+      await fetch(`${BACKEND_BASE_URL}/api/logs`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          timestamp,
+          mood,
+          videoUri: videoUri || "", // 若後端只拿來對應，可保留
+          lat: loc.lat,
+          lng: loc.lng,
+        }),
       });
     } catch (e) {
-      console.log("export json error:", e);
-      Alert.alert(
-        "匯出失敗",
-        `產生 JSON 發生錯誤：${e?.message ?? JSON.stringify(e)}`
-      );
+      console.log("Upload metadata error:", e);
+      Alert.alert("上傳資料失敗", "無法上傳情緒 / GPS 資料到後端。");
+      return;
     }
+
+    // 5. 上傳「影片本體」到後端（multipart/form-data）
+    try {
+      const formData = new FormData();
+      formData.append("timestamp", timestamp);
+      formData.append("mood", String(mood));
+      formData.append("lat", String(loc.lat));
+      formData.append("lng", String(loc.lng));
+      formData.append("video", {
+        uri: videoUri,
+        name: `emogo_vlog_${Date.now()}.mp4`,
+        type: "video/mp4",
+      });
+
+      await fetch(`${BACKEND_BASE_URL}/api/upload-video`, {
+        method: "POST",
+        body: formData,
+        // 不要自己設 Content-Type，讓 fetch 自動帶 boundary
+      });
+    } catch (e) {
+      console.log("Upload video error:", e);
+      Alert.alert("上傳影片失敗", "情緒與 GPS 已上傳，但影片上傳失敗。");
+      return;
+    }
+
+    Alert.alert("已儲存並上傳", "這次的心情、GPS 與 vlog 影片已上傳到後端。");
   };
 
-  // 分享單一影片（備用：如果老師只想看某支）
+  // 分享單一 vlog（選用）
   const shareVideo = async (uri) => {
     try {
       if (!uri) {
@@ -313,7 +287,6 @@ export default function EmogoScreen() {
 
     setLogs([]);
     setVideoUri(null);
-    setLocation(null);
     Alert.alert("已清除", "所有紀錄已清除。");
   };
 
@@ -323,7 +296,7 @@ export default function EmogoScreen() {
 
       {isWeb && (
         <Text style={{ color: "red", marginBottom: 8 }}>
-          （目前在 Web 預覽：SQLite / 相機 / GPS 皆以示意為主，JSON 匯出僅支援手機 App）
+          （目前在 Web 預覽：SQLite / 相機 / GPS 皆以示意為主）
         </Text>
       )}
 
@@ -365,32 +338,17 @@ export default function EmogoScreen() {
         </Text>
       )}
 
-      {/* 3. GPS */}
-      <Text style={styles.subtitle}>3. 取得 GPS 座標</Text>
-      <Button title="取得目前位置" onPress={getCurrentLocation} />
-      {location && (
-        <Text style={styles.locationText}>
-          目前位置：{location.lat.toFixed(5)}, {location.lng.toFixed(5)}
-        </Text>
-      )}
+      {/* 3. GPS：不再有按鈕 & 不顯示座標，改成在儲存時默默取得 */}
 
       <View style={{ height: 16 }} />
-      <Button title="儲存這次紀錄到 SQLITE" onPress={saveLog} />
+      <Button title="儲存這次紀錄" onPress={saveLog} />
 
-      {/* 匯出 / 清除 按鈕 */}
-      <View style={{ marginTop: 16, flexDirection: "row" }}>
-        <View style={{ flex: 1, marginRight: 4 }}>
-          <Button
-            title="匯出所有紀錄（JSON）"
-            onPress={exportLogsAsJson}
-          />
-        </View>
-        <View style={{ flex: 1, marginLeft: 4 }}>
-          <Button color="#cc3333" title="清除所有紀錄" onPress={clearLogs} />
-        </View>
+      {/* 只保留「清除所有紀錄」，移除 JSON 匯出按鈕 */}
+      <View style={{ marginTop: 16 }}>
+        <Button color="#cc3333" title="清除所有紀錄" onPress={clearLogs} />
       </View>
 
-      {/* 4. 最近紀錄列表 */}
+      {/* 最近 5 筆紀錄（不顯示 GPS 座標） */}
       <Text style={[styles.subtitle, { marginTop: 24 }]}>
         最近 5 筆紀錄（Web：示意；App：來自 SQLite）
       </Text>
@@ -403,9 +361,6 @@ export default function EmogoScreen() {
               時間：{new Date(log.timestamp).toLocaleString()}
             </Text>
             <Text style={styles.logLine}>心情：{log.mood}</Text>
-            <Text style={styles.logLine}>
-              GPS：{log.lat.toFixed(5)}, {log.lng.toFixed(5)}
-            </Text>
             <Text style={styles.logLine} numberOfLines={1}>
               vlog：{log.videoUri || "(無)"}
             </Text>
@@ -474,9 +429,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#000",
     justifyContent: "center",
     alignItems: "center",
-  },
-  locationText: {
-    marginTop: 8,
   },
   logItem: {
     marginTop: 8,
